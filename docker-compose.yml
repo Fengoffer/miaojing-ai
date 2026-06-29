@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: miaojing-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.docker}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.docker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./docker-data/postgres:/var/lib/postgresql/data
+      - ./scripts/init-database.sql:/docker-entrypoint-initdb.d/10-init-database.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: miaojingai:local
+    container_name: miaojing-app
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      NODE_ENV: production
+      COZE_PROJECT_ENV: PROD
+      APP_RUNTIME_ROLE: full
+      APP_BIND_HOST: 0.0.0.0
+      DEPLOY_RUN_PORT: 5000
+      COZE_WORKSPACE_PATH: /app
+      LOCAL_STORAGE_DIR: /data/storage
+      BACKUP_DIR: /data/backups
+      UPGRADE_STATE_DIR: /data/upgrade
+      UPGRADE_HEALTH_URL: http://127.0.0.1:5000/api/health
+      MIAOJING_LOAD_ENV_FILE: "0"
+    ports:
+      - "${MIAOJING_HTTP_PORT:-5000}:5000"
+    volumes:
+      - ./docker-data/storage:/data/storage
+      - ./docker-data/backups:/data/backups
+      - ./docker-data/upgrade:/data/upgrade
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
